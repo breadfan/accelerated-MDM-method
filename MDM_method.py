@@ -19,7 +19,7 @@ def GetHullandPlot(points, dim):
         for simplex in hull.simplices:
             plt.plot(points[simplex, 0], points[simplex, 1], points[simplex, 2], 'b-')
     else:
-        print('There is no way to plot graph in dim > 3, but hull is found successfully!')
+        print('There is no way to plot graph in dim > 3, but hull has found successfully!')
     return hull
 
 
@@ -31,16 +31,18 @@ class MDM(object):
         Also plots convex-hull and optimal solution in 2- and 3-dimensional cases.
     """
 
-    def __init__(self, points, hull, dim):
+    def __init__(self, points, hull, dim, accel):
         self._dim = dim
         self._points = points.copy()
         self._hull = hull
         self._A_matrix = points.copy().transpose()
+        self.isAccelerated = accel
         self.iterations = None
         self.delta_p = None
         self.p_vector = None
         self.vector_current = None
         self.supp_vector = None                     #supp for vector p (i.e. {i \in 0 : dim - 1 | p[i] > 0} )
+
 
     def solve(self):
         delta_p = 1
@@ -63,7 +65,7 @@ class MDM(object):
         p_vector[self._hull.vertices[initial_approximation]] = 1                            #working right concat
         #then we need to find vect_{k+1} iteratively
 
-        while delta_p > 0.0000001 and iterations < 500 and len(supp_vector) != 0:
+        while delta_p > 0.000001 and iterations < 500 and len(supp_vector) != 0:
             if cycle_constructed is False:
                 mult = np.dot(self._points[supp_vector], vector_current)
                 ind_max = np.argmax(mult)           #finding max for indices in supp_vector
@@ -75,11 +77,11 @@ class MDM(object):
                 MIN_set.append(ind_min)
 
                 diff = self._points[ind_max] - self._points[ind_min]
-                print('Difference: ' + str(diff))
+                print('\nDifference: ' + str(diff))
                 delta_p = np.dot(diff, vector_current)
 
-                if delta_p > 0.0000001:                  #if not bigger, then we've found a solution
-                    print('\ndelta_p: ' + str(delta_p))
+                if delta_p > 0.000001:                  #if not bigger, then we've found a solution
+                    print('delta_p: ' + str(delta_p))
                     print('p_vector[ind_max] = ' + str(p_vector[ind_max]) + '\nnp.linalg.norm(diff)): '
                           + str(np.linalg.norm(diff)))
                     t_param = delta_p /(p_vector[ind_max] * (np.linalg.norm(diff)) ** 2)  # recounting all variables
@@ -92,6 +94,8 @@ class MDM(object):
                             cycle_start = contains[0]                     #index of first element of cycle; not changing
                             cycle_size = iterations - cycle_start         #not changing
                             cycle_current_size += 1         #this var for checking if all variables actually are cycle
+                            p_vectorCS = p_vector.copy()
+                            vector_currentCS = vector_current.copy()
                         t_param_vector.append(t_param)      #saving t_params for constructing V in the future
                         diff_vector.append(diff)            #saving D_i
                     elif cycle_is_constructing is True and cycle_constructed is False:
@@ -112,13 +116,12 @@ class MDM(object):
 
 
                     vector_current -= t_param * p_vector[ind_max] * diff
-                    #plt.plot(vector_current, 'r-')
-
-                    supp_vector = []    # recounting
+                    supp_vector = []                #recounting
                     temp1 = t_param * p_vector[ind_max]
                     temp2 = (1 - t_param)
                     p_vector[ind_min] += temp1
                     p_vector[ind_max] *= temp2
+
                     for i in range(len(p_vector)):
                         if p_vector[i] > 0.0000001:
                             supp_vector.append(i)
@@ -126,8 +129,6 @@ class MDM(object):
                 iterations += 1
                 print('Iterations: ' + str(iterations))
                 print('Supp_vector: ' + str(supp_vector))
-
-
         if cycle_constructed is True:
             V = 0           #constructing V as linear combination of D's that we used previously
             for i in range(cycle_size):
@@ -136,7 +137,7 @@ class MDM(object):
             p_vector = [0 for i in range(0, len(self._points))]
             supp_vector = []
             initial_approximation = 1  # it can be changed for lowering iterations sake;
-                    # for first approximation we'll just take point from a board of hull - cause it's easy reduced
+                     #for first approximation we'll just take point from a board of hull - cause it's easy reduced
             vector_current = self._points[
                 self._hull.vertices[initial_approximation]].copy()  # need copy() there for non-changing _points
             supp_vector.append(self._hull.vertices[initial_approximation])  # approximation => get vect_0
@@ -150,12 +151,12 @@ class MDM(object):
                 ind_min = np.argmin(mult)  # i''_k
 
                 diff = self._points[ind_max] - self._points[ind_min]
-                print('Diff: ' + str(diff))
+                print('\nDifference: ' + str(diff))
                 delta_p = np.dot(diff, vector_current)
                 if delta_p > 0.0000001:  # if not bigger, then we've found a solution
 
-                    print('\nDelta: ' + str(delta_p))
-                    print('p_vector[ind_max] = ' + str(p_vector[ind_max]) + '\nnp.linalg.norm(diff)): '
+                    print('Delta: ' + str(delta_p))
+                    print('p_vector[ind_max] = ' + str(p_vector[ind_max]) + '\nnp.linalg.norm(diff): '
                               + str(np.linalg.norm(diff)))
                     t_param = delta_p / (
                                  p_vector[ind_max] * (np.linalg.norm(diff)) ** 2)  # recounting all variables
@@ -163,7 +164,6 @@ class MDM(object):
                           t_param = 1
 
                     vector_current -= t_param * p_vector[ind_max] * diff
-                    # plt.plot(vector_current, 'r-')
 
                     supp_vector = []  # recounting
                     temp1 = t_param * p_vector[ind_max]
@@ -190,25 +190,24 @@ class MDM(object):
             for i in range(cycle_size):
                    p_vector[MAX_set[i]] -= lambda_t * t_param_vector[i]
                    p_vector[MIN_set[i]] += lambda_t * t_param_vector[i]
-
-            #IT SHOULDNOT BE THERE:::::::::::::::::::::::::::::::::::::::::
-            while delta_p > 0.0000001  and iterations < 1000 and len(supp_vector) != 0:
+            ###
+            while delta_p > 0.000001  and iterations < 1000 and len(supp_vector) != 0:
                 if cycle_constructed is True:
                     mult = np.dot(self._points[supp_vector], vector_current)
                     ind_max = np.argmax(mult)  # finding max for indices in supp_vector
                     ind_max = supp_vector[ind_max]  # finding max general in our mult product
 
                     mult = np.matmul(vector_current, self._A_matrix)
-                    ind_min = np.argmin(mult)  # i''_k
+                    ind_min = np.argmin(mult)  #i''_k
 
                     diff = self._points[ind_max] - self._points[ind_min]
                     print('Diff: ' + str(diff))
                     delta_p = np.dot(diff, vector_current)
 
-                    if delta_p > 0.0000001:  # if not bigger, then we've found a solution
+                    if delta_p > 0.000001:  #if not bigger, then we've found a solution
 
                         print('\nDelta: ' + str(delta_p))
-                        print('p_vector[ind_max] = ' + str(p_vector[ind_max]) + '\nnp.linalg.norm(diff)): '
+                        print('p_vector[ind_max] = ' + str(p_vector[ind_max]) + '\nnp.linalg.norm(diff): '
                               + str(np.linalg.norm(diff)))
                         t_param = delta_p / (
                                     p_vector[ind_max] * (np.linalg.norm(diff)) ** 2)  # recounting all variables
@@ -217,7 +216,7 @@ class MDM(object):
 
                         vector_current -= t_param * p_vector[ind_max] * diff
 
-                        supp_vector = []  # recounting
+                        supp_vector = []  #recounting
                         temp1 = t_param * p_vector[ind_max]
                         temp2 = (1 - t_param)
                         p_vector[ind_min] += temp1
@@ -230,7 +229,6 @@ class MDM(object):
                     print('Iterations: ' + str(iterations))
                     print('Supp_vector: ' + str(supp_vector))
         return vector_current
-
 
 
 
@@ -269,17 +267,23 @@ points =np.array([[ -73.337555  ,   -4.82192605],
 dim = 2; number_of_points = 30
 
 isManualEnter = False
+isAccelerated = True
+
 inp = input('Use manual enter or use default parameters? M/D.')
 if inp == 'M':
     isManualEnter = True
 if isManualEnter is True:
     dim = int(input('Enter number of dimensions: '))
     number_of_points = int(input('Enter number of points: '))
+    temp = input('Use classic or accelerated MDM-method? C/A')
+    if temp == 'C':
+        isAccelerated = False
     points = GenerPoints(3, 68, number_of_points, dim)
 
 hull = GetHullandPlot(points, dim)
-mdm = MDM(points, hull, dim)
+mdm = MDM(points, hull, dim, isAccelerated)
 result = mdm.solve()                                    #returns a point in R^dim
+
 if dim == 2 :
     plt.plot([result[0], 0], [result[1], 0], 'ro')
 elif dim == 3 :
