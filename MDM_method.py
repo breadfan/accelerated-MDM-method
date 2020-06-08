@@ -36,7 +36,7 @@ class MDM(object):
         self._points = points.copy()
         self._hull = hull
         self._A_matrix = points.copy().transpose()
-        self.isAccelerated = accel
+        self.isAccelerated = accel                  #which method we're using
         self.iterations = None
         self.delta_p = None
         self.p_vector = None
@@ -71,7 +71,7 @@ class MDM(object):
         #then we need to find vect_{k+1} iteratively
 
         while delta_p > 0.000001 and iterations < 500 and len(supp_vector) != 0:
-            if cycle_constructed is True and special_upd_done is False:
+            if self.isAccelerated is True and cycle_constructed is True and special_upd_done is False:
                 for i in range(cycle_size):  #constructing V as linear combination of D's that we used previously
                     V += -1 * t_param_vector[cycle_start + i] * diff_vector[cycle_start + i]
                 p_vector = P_vectors[cycle_start]                   #returning to value where cycle had begun
@@ -102,7 +102,7 @@ class MDM(object):
 
             mult = np.matmul(vector_current, self._A_matrix)
             ind_min = np.argmin(mult)                                                 # i''_k
-            if cycle_constructed is False:
+            if self.isAccelerated is True and cycle_constructed is False:
                 MIN_set.append(ind_min)
                 MAX_set.append(ind_max)
             diff = self._points[ind_max] - self._points[ind_min]
@@ -117,32 +117,33 @@ class MDM(object):
                 if t_param >= 1:
                     t_param = 1
 
-                if iterations > 0 and cycle_is_constructing is False:  #constructing cycle(active finding cycle, i mean, active-active)
-                    contains = np.where(np.all(diff_vector == diff, axis = 1))[0]    #finds if diff_vector contains diff
-                    if len(contains) != 0:      #found first element of cycle
-                        cycle_is_constructing = True        #cycle is constructing now
-                        cycle_start = contains[0]                     #index of first element of cycle; not changing
-                        cycle_size = iterations - cycle_start         #not changing
-                        cycle_current_size += 1         #this var for checking if all variables actually are cycle
-                    P_vectors.append(p_vector.copy())
-                    V_vectors.append(vector_current.copy())
-                    t_param_vector.append(t_param)      #saving t_params for constructing V in the future
-                    diff_vector.append(diff)            #saving D_i
-                elif cycle_is_constructing is True and cycle_constructed is False:
-                    if cycle_current_size < cycle_size and \
-                            np.where(np.all(diff_vector == diff, axis = 1))[0] \
-                            == (cycle_start + cycle_current_size):
-                        cycle_current_size += 1
-                        diff_vector.append(diff)
+                if self.isAccelerated is True:          #if using accelerated MDM-method
+                    if iterations > 0 and cycle_is_constructing is False:  #constructing cycle(active finding cycle, i mean, active-active)
+                        contains = np.where(np.all(diff_vector == diff, axis = 1))[0]    #finds if diff_vector contains diff
+                        if len(contains) != 0:      #found first element of cycle
+                            cycle_is_constructing = True        #cycle is constructing now
+                            cycle_start = contains[0]                     #index of first element of cycle; not changing
+                            cycle_size = iterations - cycle_start         #not changing
+                            cycle_current_size += 1         #this var for checking if all variables actually are cycle
+                        P_vectors.append(p_vector.copy())
+                        V_vectors.append(vector_current.copy())
+                        t_param_vector.append(t_param)      #saving t_params for constructing V in the future
+                        diff_vector.append(diff)            #saving D_i
+                    elif cycle_is_constructing is True and cycle_constructed is False:
+                        if cycle_current_size < cycle_size and \
+                                np.where(np.all(diff_vector == diff, axis = 1))[0] \
+                                == (cycle_start + cycle_current_size):
+                            cycle_current_size += 1
+                            diff_vector.append(diff)
+                            t_param_vector.append(t_param)
+                        else:
+                            cycle_constructed = True
+                            print('CYCLE FOUND AND CONSTRUCTED SUCCESSFULLY!')
+                    elif iterations == 0:
+                        P_vectors.append(p_vector.copy())
+                        V_vectors.append(vector_current.copy())
                         t_param_vector.append(t_param)
-                    else:
-                        cycle_constructed = True
-                        print('CYCLE FOUND AND CONSTRUCTED SUCCESSFULLY!')
-                elif iterations == 0:
-                    P_vectors.append(p_vector.copy())
-                    V_vectors.append(vector_current.copy())
-                    t_param_vector.append(t_param)
-                    diff_vector.append(diff)
+                        diff_vector.append(diff)
 
 
                 vector_current -= t_param * p_vector[ind_max] * diff
@@ -196,6 +197,7 @@ points =np.array([[ -73.337555  ,   -4.82192605],
        [  57.41048001, -119.28130887],
        [ -66.49323658,  -92.43371661],
        [  10.46455101,  -80.23934518]])
+
 dim = 2; number_of_points = 30
 
 isManualEnter = False
@@ -205,12 +207,31 @@ inp = input('Use manual enter or use default parameters? M/D.')
 if inp == 'M':
     isManualEnter = True
 if isManualEnter is True:
-    dim = int(input('Enter number of dimensions: '))
-    number_of_points = int(input('Enter number of points: '))
-    temp = input('Use classic or accelerated MDM-method? C/A')
+    gener = input('Use generator or manual input of points? G/M')
+    if gener == 'M':
+        print('Enter the data (points values) in the \"data.txt\" file.')
+        points = []
+        number_of_points = 0
+        with open("data.txt") as f:
+            for line in f:
+                temp = [float(x) for x in line.split()]
+                points.append(temp)
+                number_of_points += 1
+        points = np.array(points)
+        dim = len(points[0])
+    elif gener == 'G':
+        dim = int(input('Enter number of dimensions: '))
+        number_of_points = int(input('Enter number of points: '))
+        points = GenerPoints(3, 68, number_of_points, dim)
+
+    temp = input('Use classic or accelerated MDM-method? C/A')      #by default we're using accelerated method
     if temp == 'C':
         isAccelerated = False
-    points = GenerPoints(3, 68, number_of_points, dim)
+
+elif isManualEnter is False:
+    print('Our DEFAULT values: \nNumber of dimensions is ' \
+          + str(dim) + '\nNumber of points is ' + str(number_of_points))
+
 
 hull = GetHullandPlot(points, dim)
 mdm = MDM(points, hull, dim, isAccelerated)
