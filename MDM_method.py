@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial import ConvexHull
 
 def GenerPoints(a, alpha, num_points, dim):
-    return alpha * np.random.rand(num_points, dim) + a
+    return alpha * np.random.randn(num_points, dim) + a
 
 def GetHullandPlot(points, dim):
     hull = ConvexHull(points)
@@ -29,19 +29,47 @@ class MDM(object):
         This is an implementation the accelerated Mitchell-Demyanov-Malozemov method for 
         finding nearest to coordinates beginning point.
         Also plots convex-hull and optimal solution in 2- and 3-dimensional cases.
+        
+        #############################################################
+        ######################   ARGUMENTS    ######################
+        #############################################################
+        _dim: int 
+            Dimensionality of the problem, usually dim = 2 or 3 for plotting purposes
+            
+        _points: np.ndarray of shape (dim, number_of_points)
+            Points which form convex hull
+            
+        is_accelerated: boolean
+            Flag for using accelerated either not-accelerated MDM-method
+            
+        supp_vector: list of floats
+            Support vector (i.e. {i \in 0 : dim - 1 | p[i] > 0} )
+            
+        max_iter: int (default value is 500)
+            Maximum iterations we can evaluate on
+            
+        init_approx_index: int (default is 1)
+            Index of element of convex hull, which forms first approximation of v vector.
+            It can be changed for lowering iterations sake
+            For first approximation we'll just take point from a board of hull - cause it's easy reduced
+        #############################################################
+        #############################################################
+        #############################################################
     """
 
-    def __init__(self, points, hull, dim, accel):
+    def __init__(self, points, hull, dim, accel, max_iter = 500, init_approx_index = 1):
         self._dim = dim
         self._points = points.copy()
         self._hull = hull
         self._A_matrix = points.copy().transpose()
-        self.isAccelerated = accel                  #which method we're using
+        self.is_accelerated = accel
         self.iterations = None
         self.delta_p = None
         self.p_vector = None
         self.vector_current = None
-        self.supp_vector = None                     #supp for vector p (i.e. {i \in 0 : dim - 1 | p[i] > 0} )
+        self.supp_vector = None
+        self.max_iter = max_iter
+        self.init_approx_index = init_approx_index
 
 
     def solve(self):
@@ -55,27 +83,25 @@ class MDM(object):
 
         MIN_set = []
         MAX_set = []
-        diff_vector = []                            #for cycles finding
-        P_vectors = []                              #matrix of p_vectors
+        diff_vector = []                            # for cycles finding
+        P_vectors = []                              # matrix of p_vectors
         V_vectors = []
         cycle_constructed = False
         cycle_is_constructing = False
         special_upd_done = False                    #whether special update Wn = W + lambdaV is done
         cycle_current_size = 0                      #we will search actual size of cycle
 
-        initial_approximation = 1                    #it can be changed for lowering iterations sake;
-        #for first approximation we'll just take point from a board of hull - cause it's easy reduced
-        vector_current = self._points[self._hull.vertices[initial_approximation]].copy()    #need copy() there for non-changing _points
-        supp_vector.append(self._hull.vertices[initial_approximation])                      #approximation => get vect_0
-        p_vector[self._hull.vertices[initial_approximation]] = 1                            #working right concat
+        vector_current = self._points[self._hull.vertices[self.init_approx_index]].copy()    #need copy() there for non-changing _points
+        supp_vector.append(self._hull.vertices[self.init_approx_index])                      # approximation => get vect_0
+        p_vector[self._hull.vertices[self.init_approx_index]] = 1                            # working right concat
         #then we need to find vect_{k+1} iteratively
 
-        while delta_p > 0.000001 and iterations < 500 and len(supp_vector) != 0:
-            if self.isAccelerated is True and cycle_constructed is True and special_upd_done is False:
+        while delta_p > 0.000001 and iterations < self.max_iter and len(supp_vector) != 0:
+            if self.is_accelerated is True and cycle_constructed is True and special_upd_done is False:
                 for i in range(cycle_size):  #constructing V as linear combination of D's that we used previously
-                    V += -1 * t_param_vector[cycle_start + i] * diff_vector[cycle_start + i]
-                p_vector = P_vectors[cycle_start]                   #returning to value where cycle had begun
-                vector_current = V_vectors[cycle_start]       #returning
+                    V += -1 * t_param_vector[cycle_start + i - 1] * diff_vector[cycle_start + i -1]
+                p_vector = P_vectors[cycle_start - 1]                   #returning to value where cycle had begun
+                vector_current = V_vectors[cycle_start - 1]       #returning
                 supp_vector = []                        #returning
                 for i in range(len(p_vector)):          #returning
                     if p_vector[i] > 0.0000001:
@@ -97,12 +123,12 @@ class MDM(object):
 
 
             mult = np.dot(self._points[supp_vector], vector_current)
-            ind_max = np.argmax(mult)           #finding max for indices in supp_vector
-            ind_max = supp_vector[ind_max]      #finding max general in our mult product
+            ind_max = np.argmax(mult)           # finding max for indices in supp_vector
+            ind_max = supp_vector[ind_max]      # finding max general in our mult product
 
             mult = np.matmul(vector_current, self._A_matrix)
             ind_min = np.argmin(mult)                                                 # i''_k
-            if self.isAccelerated is True and cycle_constructed is False:
+            if self.is_accelerated is True and cycle_constructed is False:
                 MIN_set.append(ind_min)
                 MAX_set.append(ind_max)
             diff = self._points[ind_max] - self._points[ind_min]
@@ -117,33 +143,37 @@ class MDM(object):
                 if t_param >= 1:
                     t_param = 1
 
-                if self.isAccelerated is True:          #if using accelerated MDM-method
+                ###################
+                #Block for cycle finding. We must remember that MDM can improve wrong choices for updating vectors
+                #It could be labeled as "false cycle construction"
+                #for one cycles
+                #####################
+                if self.is_accelerated is True:          #if using accelerated MDM-method
                     if iterations > 0 and cycle_is_constructing is False:  #constructing cycle(active finding cycle, i mean, active-active)
                         contains = np.where(np.all(diff_vector == diff, axis = 1))[0]    #finds if diff_vector contains diff
+                        print('np.where1: ' + str(contains))
                         if len(contains) != 0:      #found first element of cycle
                             cycle_is_constructing = True        #cycle is constructing now
-                            cycle_start = contains[0]                     #index of first element of cycle; not changing
+                            cycle_start = contains[len(contains)-1]                     #index of first element of cycle; not changing
                             cycle_size = iterations - cycle_start         #not changing
                             cycle_current_size += 1         #this var for checking if all variables actually are cycle
-                        P_vectors.append(p_vector.copy())
-                        V_vectors.append(vector_current.copy())
-                        t_param_vector.append(t_param)      #saving t_params for constructing V in the future
-                        diff_vector.append(diff)            #saving D_i
                     elif cycle_is_constructing is True and cycle_constructed is False:
-                        if cycle_current_size < cycle_size and \
-                                np.where(np.all(diff_vector == diff, axis = 1))[0] \
-                                == (cycle_start + cycle_current_size):
-                            cycle_current_size += 1
-                            diff_vector.append(diff)
-                            t_param_vector.append(t_param)
-                        else:
-                            cycle_constructed = True
-                            print('CYCLE FOUND AND CONSTRUCTED SUCCESSFULLY!')
-                    elif iterations == 0:
-                        P_vectors.append(p_vector.copy())
-                        V_vectors.append(vector_current.copy())
-                        t_param_vector.append(t_param)
-                        diff_vector.append(diff)
+                        if cycle_current_size < cycle_size:
+                            indices_match = np.where(np.all(diff_vector == diff, axis=1))[0]
+                            print('np.where2: ' + str(indices_match))
+                            if len(indices_match) > 0 and  indices_match[len(indices_match) - 1] == (cycle_start + cycle_current_size):
+                                cycle_current_size += 1     #checking if cycle exists
+                                if cycle_current_size == cycle_size:
+                                    cycle_constructed = True
+                                    print('CYCLE HAS FOUND AND CONSTRUCTED SUCCESSFULLY!')
+                            else:
+                                cycle_is_constructing = False
+                                cycle_current_size = 0
+                                print('False cycle construction.')
+                    P_vectors.append(p_vector.copy())
+                    V_vectors.append(vector_current.copy())
+                    t_param_vector.append(t_param)
+                    diff_vector.append(diff)
 
 
                 vector_current -= t_param * p_vector[ind_max] * diff
@@ -166,7 +196,7 @@ class MDM(object):
 
 
 
-
+#old 2-dim default example, works fine
 points =np.array([[ -73.337555  ,   -4.82192605],
        [   9.36299101,   14.79378288],
        [  33.74875017,   10.02043701],
@@ -196,17 +226,50 @@ points =np.array([[ -73.337555  ,   -4.82192605],
        [  51.88700332,  -69.65988091],
        [  57.41048001, -119.28130887],
        [ -66.49323658,  -92.43371661],
-       [  10.46455101,  -80.23934518]])
+       [  10.46455101,  -80.23934518]])   ##
+
+
+# points = np.array([[ -75.17801366,    7.83288242,   -5.01730323],
+#        [  34.64493481,   17.08160686,   -4.12464737],
+#        [  69.25185714,   46.30248975,  -50.02067627],
+#        [  38.10853617,  -14.51657311,   16.07997019],
+#        [ -11.14528316,  -23.9139584 ,  -48.72752102],
+#        [  47.71039686,  -67.59707025,  -71.9969375 ],
+#        [  28.54312988, -127.60998881, -114.56196853],
+#        [ 205.10854027,    0.32344749,  -45.66628019],
+#        [   2.92497051,  -46.89594309,   53.06491769],
+#        [  41.97712067, -170.65770544,   18.60333687],
+#        [ -51.55472502,   60.64006628,   67.86351622],
+#        [  44.59497019,   27.57009689,   95.74464091],
+#        [   3.35649724,  -12.96848999,  -67.41464425],
+#        [ -47.15574201,   33.67097469,  -48.27886268],
+#        [   7.66095838,   59.77078387, -162.02028844],
+#        [ -69.59850196,  -23.95314366,  -58.41426815],
+#        [  27.61525677,  -47.26875507,   -4.70457163],
+#        [ -74.79462539,    7.96213077,   -9.01206742],
+#        [ -66.99167694,   51.87158456,  -31.53336444],
+#        [-116.95434661,  -95.79658366,  -22.96431562],
+#        [  54.39636852,   25.06735714,   30.18068819],
+#        [ -91.04888825,   58.20995254,  -24.17908215],
+#        [ -12.8309548 ,  -16.78814715,  -41.21037765],
+#        [ -78.25185047,   63.99086455,  -47.92050365],
+#        [ -79.99177441,  -60.06975075,   29.71067655],
+#        [  74.3836634 ,  -28.15199117,  -29.7868583 ],
+#        [ -65.77372521,   79.95508642,    0.29089113],
+#        [   5.23160557,  151.42554231,   60.96004149],
+#        [ -49.1255094 ,   23.05475224,  181.98787966],
+#        [ -46.1174773 ,  -31.61406696,   60.10877562]])
+
 
 dim = 2; number_of_points = 30
 
-isManualEnter = False
-isAccelerated = True
+is_manual_enter = False
+is_accelerated = True
 
 inp = input('Use manual enter or use default parameters? M/D.')
 if inp == 'M':
-    isManualEnter = True
-if isManualEnter is True:
+    is_manual_enter = True
+if is_manual_enter is True:
     gener = input('Use generator or manual input of points? G/M')
     if gener == 'M':
         print('Enter the data (points values) in the \"data.txt\" file.')
@@ -226,15 +289,15 @@ if isManualEnter is True:
 
     temp = input('Use classic or accelerated MDM-method? C/A')      #by default we're using accelerated method
     if temp == 'C':
-        isAccelerated = False
+        is_accelerated = False
 
-elif isManualEnter is False:
+elif is_manual_enter is False:
     print('Our DEFAULT values: \nNumber of dimensions is ' \
           + str(dim) + '\nNumber of points is ' + str(number_of_points))
 
 
 hull = GetHullandPlot(points, dim)
-mdm = MDM(points, hull, dim, isAccelerated)
+mdm = MDM(points, hull, dim, is_accelerated)
 result = mdm.solve()                                    #returns a point in R^dim
 
 if dim == 2 :
